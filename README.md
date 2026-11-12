@@ -2,10 +2,15 @@
 
 > **This is a fork.** OWLOS Flight Radar is Denis Kirin's project:
 > **[kirindenis.github.io/OWLOS-FLIGHT-RADAR](https://kirindenis.github.io/OWLOS-FLIGHT-RADAR/)**.
-> Everything below this box is his README, unchanged, and the radar itself is his work. This fork
+> Everything below this box is the original README, unchanged, and the radar itself is Denis Kirin's work. This fork
 > adds support for the **Waveshare ESP32-S3-Touch-LCD-7** (800×480) and **-7B** (1024×600) boards,
 > and a new way of drawing on ESP32-S3 boards with an RGB parallel panel. Builds from this fork are
-> not his releases: please report problems with them here, not to him.
+> not official releases: please report problems with them here, not to the original author.
+>
+> [![The -7B running the fork: the sweep turning at the panel's 30 frames a second over live traffic](media/wave7b.webp)](media/wave7b.mp4)
+>
+> *The -7B on live traffic, filmed off the glass at 30 fps (straightened and steadied; click for the
+> 1024×600 MP4). The sweep turns at the panel's own frame rate: it is never drawn into the frame.*
 >
 > **What the fork adds**
 >
@@ -13,22 +18,41 @@
 >   on Windows; ESP-IDF 5.5). The panel, its timing and the board's I/O expander are driven by
 >   chipguyhere's Waveshare 7/7B board and display libraries (0.1.0), vendored into
 >   `firmware/components/chipguy_lcd7_7b` with a small Arduino shim so the project stays plain ESP-IDF.
+>   The library tells the two boards apart by itself; the firmware's screen size is fixed at build
+>   time, so each board takes its own build (the wrong one says so on the serial port).
 > - **A moving layer.** The planes, the radar sweep and the compass ring are no longer drawn into the
 >   frame in PSRAM. That frame holds only what stands still, and is redrawn in the background as time
 >   allows. The moving things go on top of each piece of the frame as the panel is fed: after the
 >   GDMA copies a chunk of rows from PSRAM into the bounce buffer, the fill task lays the moving layer
->   over those rows, row by row, just before the panel scans them. They move at the panel's own frame
->   rate whenever the layer can be made in time. See `firmware/main/ovl.c` and `lcd_wave7.c`.
+>   over those rows, row by row, just before the panel scans them.
+>   - The sweep is worked out by the fill itself for every panel frame, so it is locked to the
+>     panel's frame rate (~30 fps on the -7B, ~34 on the -7) whatever the rest of the firmware is doing.
+>   - The planes, their labels and the compass ring are made into a layer on the other core a few
+>     times a second, and the fill blends it in with the S3's 128-bit PIE instructions. With "beam
+>     step" (now on by default) a plane moves only when the sweep passes over it, as on a real scope.
+>   - The heaviest chunks of the next frame are composed ahead of time on the other core into PSRAM,
+>     and the panel's DMA reads those instead, so the rows that would take longest never race the beam.
+>   - Popups (the DEMO card, toasts) are cut out of the layer. While a finger turns the compass, the
+>     layer is the ring alone, made every frame so it follows the finger; the planes catch up after.
+>
+>   See `firmware/main/ovl.c`, `lcd_wave7.c` and [FORK-NOTES.md](FORK-NOTES.md) for the design and
+>   the measurements.
 > - The touch alignment is skipped on these boards: the GT911 is capacitive and counts the glass's
 >   own pixels.
 >
 > **Porting to other ESP32-S3 RGB boards.** `ovl.c` knows nothing about the board: any S3 board whose
 > RGB panel is fed through bounce buffers can use it, given a fill that calls it after each chunk
-> lands. chipguyhere's libraries for other ESP32-S3 RGB boards he has supported and analyzed
+> lands. chipguyhere's libraries for other ESP32-S3 RGB boards
 > (the `chipguy_*_display` and `*_board` libraries at [github.com/chipguyhere](https://github.com/chipguyhere))
 > are good reference material for the pins, timing and quirks of those boards.
 >
-> **Status:** work in progress, run on a -7B only. See [FORK-NOTES.md](FORK-NOTES.md).
+> **Not for other kinds of boards.** The improvements here are specific to an ESP32-S3 driving an RGB
+> parallel panel through bounce buffers: the moving layer is laid on while the panel's DMA feeds it,
+> and it leans on the S3's PIE vector instructions. An SPI or QSPI panel keeps its own frame memory
+> and has no such feed to lay anything onto, and other ESP32s lack PIE, so there is nothing here to
+> backport to those boards. For them, use [the original project](https://github.com/KirinDenis/OWLOS-FLIGHT-RADAR).
+>
+> **Status:** work in progress; runs on both the -7 and the -7B. See [FORK-NOTES.md](FORK-NOTES.md).
 
 
 [![What it does: the planes round your home, the radar turned and zoomed, the looks, an emergency on the RGB LED](shots/promo.gif)](https://kirindenis.github.io/OWLOS-FLIGHT-RADAR/shots/promo.mp4)

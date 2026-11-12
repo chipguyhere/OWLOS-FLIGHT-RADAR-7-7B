@@ -206,6 +206,14 @@ static inline int menu_x(int i) { return SCX - (MENU_N * MENU_W + (MENU_N - 1) *
 void boot_banner(ui_t *u, canvas_t *cv);            /* the first seconds: the name, and which screen */
 void scope_frame(ui_t *u);
 void main_draw(ui_t *u, canvas_t *cv);
+#if RADAR_OVERLAY
+void main_top(ui_t *u, canvas_t *cv);
+#define LAYER_BG  (cv->layer == UI_LAYER_BG)    /* drawing the frame in memory: no moving things */
+#define LAYER_TOP (cv->layer == UI_LAYER_TOP)   /* drawing the moving things alone */
+#else
+#define LAYER_BG  0
+#define LAYER_TOP 0
+#endif
 int  main_hit(const ui_t *u, int x, int y);
 int  scope_pick(const ui_t *u, int x, int y);      /* plane index or -1 */
 void silhouette(canvas_t *cv, int kind, float x, float y, float heading, float size, uint32_t c, int a);

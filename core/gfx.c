@@ -15,7 +15,7 @@ static int clip_rows(const canvas_t *cv, int *ya, int *yb)
 
 static inline void plot(uint32_t *row, int x, uint32_t c, int a)
 {
-    if (a >= 256) row[x] = c;
+    if (a >= 256) row[x] = c | GFX_OPAQUE;
     else if (a > 0) row[x] = gfx_mix(row[x], c, (uint32_t)a);
 }
 
@@ -46,20 +46,44 @@ static void vspan(canvas_t *cv, int x, int y0, int y1, uint32_t c, int a)
     for (int y = y0; y <= y1; y++) plot(gfx_row(cv, y), x, c, a);
 }
 
+/* a layout pixel's run of glass pixels along one axis, from e0 to e1 in 1/2^GFX_SCALE_SHIFT of a
+ * glass pixel: the first and last as much as they are covered. fork: the ends used to be rounded
+ * down to whole glass pixels, up to 7/8 of one short at 15/8, and the chamfered boxes' cut corners
+ * (round-ended lines placed exactly) no longer met their straight sides */
+static inline int cover(int g, int e0, int e1)
+{
+    const int one = 1 << GFX_SCALE_SHIFT, lo = g * one > e0 ? g * one : e0, hi = (g + 1) * one < e1 ? (g + 1) * one : e1;
+    return hi > lo ? hi - lo : 0;
+}
+
 CORE_HOT void gfx_hline(canvas_t *cv, int x0, int x1, int y, uint32_t c, int a)
 {
     if (x0 > x1) { int t = x0; x0 = x1; x1 = t; }
-    const int xa = GFX_Z(x0), xb = GFX_Z(x1 + 1) - 1, r = GFX_Z(y);
-    hspan(cv, xa, xb, r, c, y & 1 ? a / 2 : a);
-    hspan(cv, xa, xb, r + 1, c, y & 1 ? a : a / 2);
+    const int f0 = x0 * GFX_SCALE_NUM, f1 = (x1 + 1) * GFX_SCALE_NUM;           // along
+    const int xs = f0 >> GFX_SCALE_SHIFT, xe = (f1 - 1) >> GFX_SCALE_SHIFT;
+    const int e0 = y * GFX_SCALE_NUM, e1 = e0 + GFX_SCALE_NUM;                 // across
+    for (int r = e0 >> GFX_SCALE_SHIFT; r << GFX_SCALE_SHIFT < e1; r++) {
+        const int ar = a * cover(r, e0, e1) >> GFX_SCALE_SHIFT;
+        if (xs == xe) { hspan(cv, xs, xs, r, c, ar * cover(xs, f0, f1) >> GFX_SCALE_SHIFT); continue; }
+        hspan(cv, xs, xs, r, c, ar * cover(xs, f0, f1) >> GFX_SCALE_SHIFT);
+        hspan(cv, xs + 1, xe - 1, r, c, ar);
+        hspan(cv, xe, xe, r, c, ar * cover(xe, f0, f1) >> GFX_SCALE_SHIFT);
+    }
 }
 
 CORE_HOT void gfx_vline(canvas_t *cv, int x, int y0, int y1, uint32_t c, int a)
 {
     if (y0 > y1) { int t = y0; y0 = y1; y1 = t; }
-    const int ya = GFX_Z(y0), yb = GFX_Z(y1 + 1) - 1, r = GFX_Z(x);
-    vspan(cv, r, ya, yb, c, x & 1 ? a / 2 : a);
-    vspan(cv, r + 1, ya, yb, c, x & 1 ? a : a / 2);
+    const int f0 = y0 * GFX_SCALE_NUM, f1 = (y1 + 1) * GFX_SCALE_NUM;           // along
+    const int ys = f0 >> GFX_SCALE_SHIFT, ye = (f1 - 1) >> GFX_SCALE_SHIFT;
+    const int e0 = x * GFX_SCALE_NUM, e1 = e0 + GFX_SCALE_NUM;                 // across
+    for (int r = e0 >> GFX_SCALE_SHIFT; r << GFX_SCALE_SHIFT < e1; r++) {
+        const int ar = a * cover(r, e0, e1) >> GFX_SCALE_SHIFT;
+        if (ys == ye) { vspan(cv, r, ys, ys, c, ar * cover(ys, f0, f1) >> GFX_SCALE_SHIFT); continue; }
+        vspan(cv, r, ys, ys, c, ar * cover(ys, f0, f1) >> GFX_SCALE_SHIFT);
+        vspan(cv, r, ys + 1, ye - 1, c, ar);
+        vspan(cv, r, ye, ye, c, ar * cover(ye, f0, f1) >> GFX_SCALE_SHIFT);
+    }
 }
 #else
 CORE_HOT void gfx_hline(canvas_t *cv, int x0, int x1, int y, uint32_t c, int a)

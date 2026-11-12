@@ -1,4 +1,35 @@
-# OWLOS Flight Radar
+# OWLOS Flight Radar — Waveshare ESP32-S3 RGB fork
+
+> **This is a fork.** OWLOS Flight Radar is Denis Kirin's project:
+> **[kirindenis.github.io/OWLOS-FLIGHT-RADAR](https://kirindenis.github.io/OWLOS-FLIGHT-RADAR/)**.
+> Everything below this box is his README, unchanged, and the radar itself is his work. This fork
+> adds support for the **Waveshare ESP32-S3-Touch-LCD-7** (800×480) and **-7B** (1024×600) boards,
+> and a new way of drawing on ESP32-S3 boards with an RGB parallel panel. Builds from this fork are
+> not his releases: please report problems with them here, not to him.
+>
+> **What the fork adds**
+>
+> - Two builds, `wave7` and `wave7b` (`firmware/build.sh wave7b` on macOS/Linux, `BUILD.BAT wave7b`
+>   on Windows; ESP-IDF 5.5). The panel, its timing and the board's I/O expander are driven by
+>   chipguyhere's Waveshare 7/7B board and display libraries (0.1.0), vendored into
+>   `firmware/components/chipguy_lcd7_7b` with a small Arduino shim so the project stays plain ESP-IDF.
+> - **A moving layer.** The planes, the radar sweep and the compass ring are no longer drawn into the
+>   frame in PSRAM. That frame holds only what stands still, and is redrawn in the background as time
+>   allows. The moving things go on top of each piece of the frame as the panel is fed: after the
+>   GDMA copies a chunk of rows from PSRAM into the bounce buffer, the fill task lays the moving layer
+>   over those rows, row by row, just before the panel scans them. They move at the panel's own frame
+>   rate whenever the layer can be made in time. See `firmware/main/ovl.c` and `lcd_wave7.c`.
+> - The touch alignment is skipped on these boards: the GT911 is capacitive and counts the glass's
+>   own pixels.
+>
+> **Porting to other ESP32-S3 RGB boards.** `ovl.c` knows nothing about the board: any S3 board whose
+> RGB panel is fed through bounce buffers can use it, given a fill that calls it after each chunk
+> lands. chipguyhere's libraries for other ESP32-S3 RGB boards he has supported and analyzed
+> (the `chipguy_*_display` and `*_board` libraries at [github.com/chipguyhere](https://github.com/chipguyhere))
+> are good reference material for the pins, timing and quirks of those boards.
+>
+> **Status:** work in progress, run on a -7B only. See [FORK-NOTES.md](FORK-NOTES.md).
+
 
 [![What it does: the planes round your home, the radar turned and zoomed, the looks, an emergency on the RGB LED](shots/promo.gif)](https://kirindenis.github.io/OWLOS-FLIGHT-RADAR/shots/promo.mp4)
 

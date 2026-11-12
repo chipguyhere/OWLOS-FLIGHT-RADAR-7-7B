@@ -37,6 +37,12 @@ int i2c_probe(uint8_t addr)
     return i2c_master_probe(s_bus, addr, 50) == ESP_OK;
 }
 
+i2c_master_bus_handle_t i2c_bus_get(void)
+{
+    bus_up();
+    return s_bus;
+}
+
 void i2c_bus_free(void)
 {
     if (!s_bus) return;

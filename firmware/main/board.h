@@ -12,6 +12,7 @@
  *   DISP_ILI9486   raw SPI, every byte padded to 16 bits (RPi LCD with shift registers)
  *   DISP_EPD       SSD1683 e-paper, bit-banged, 1 bit a pixel (core/paper.c)
  *   DISP_LCD_DSI   a frame in the PSRAM on the P4's MIPI-DSI, the panel standing (the Tab5, lcd_dsi.c)
+ *   DISP_WAVE7     the Waveshare 7/7B through chipguyhere's library, the moving layer over it (lcd_wave7.c)
  * touch: TOUCH_XPT_BITBANG, TOUCH_XPT_SPI (on the LCD bus), TOUCH_CST816, TOUCH_FT6336, TOUCH_GT911,
  * TOUCH_BSP (the board package's, the Tab5), or none */
 
@@ -305,6 +306,21 @@
 #define PIN_I2C_SCL   20
 #define NO_CHIP_USB    1
 #define PIN_BUTTON   (-1)       // BOOT is the panel's clock, see above
+
+#elif RADAR_DISPLAY == DISPLAY_WAVE7_800x480 || RADAR_DISPLAY == DISPLAY_WAVE7B_1024x600
+/* Waveshare ESP32-S3-Touch-LCD-7 (800x480, ESP32-S3-WROOM-1 N8R8) and -7B (1024x600, N16R8). fork
+ * addition: driven by chipguyhere's 7/7B library, vendored in components/chipguy_lcd7_7b, which owns
+ * the panel, its pins and timing, and the board's I2C expander (panel reset and supply, backlight,
+ * the GT911's reset). lcd_wave7.c. the panel is fed from the PSRAM through two bounce buffers by
+ * the library's fill task, and the moving layer (ovl.c) is put over each chunk as it lands.
+ * one library for both boards, but the layout is built for one glass: each has its own build, and
+ * the wrong one says so in the log. a -7B ran it here (2026-11-11); the -7 not yet */
+#define DISP_WAVE7     1
+#define DISP_STRIP     4        // rows a strip of the background, drawn on the second core (main.c bg_task): 16 KB of RAM
+#define TOUCH_GT911    1        // its reset goes through the expander: lcd_wave7.c does it before tp_init
+#define PIN_I2C_SDA    8        // the expander, the touch, the I2C header
+#define PIN_I2C_SCL    9
+#define PIN_BUTTON   (-1)       // BOOT is GPIO0, a panel data line
 
 #elif RADAR_DISPLAY == DISPLAY_4827S043_480x272
 /* ESP32-4827S043C, 4.3": ESP32-S3 N16R8, 480x272 on the RGB bus, GT911, a CH340. pins and timing from

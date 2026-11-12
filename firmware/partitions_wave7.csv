@@ -1,0 +1,9 @@
+# Name,   Type, SubType,  Offset,   Size
+# the Waveshare 7 (8 MB flash) and 7B (16 MB), fork addition: the 4 MB layout's app and tiles, and a
+# core dump on flash, so a crash can be read afterwards (idf.py coredump-info) even when nobody was
+# watching the serial port
+nvs,      data, nvs,      0x9000,   0x6000
+phy_init, data, phy,      0xf000,   0x1000
+factory,  app,  factory,  0x10000,  0x200000
+tiles,    data, 0x40,     0x210000, 0x1F0000
+coredump, data, coredump, 0x400000, 0x10000

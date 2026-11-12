@@ -3,6 +3,7 @@
  * no tile. the sectors are erased just before the writing reaches them, and the tiles they held
  * are forgotten then. at power on the headers are read back: the newest one says where to go on */
 #include "tiles.h"
+#include "gfx.h"        // CORE_BIG
 #include <stdio.h>
 #include <string.h>
 #include "net.h"
@@ -23,7 +24,7 @@ typedef struct { uint32_t magic; int32_t z, x, y; uint32_t len, seq, spare[2]; }
 typedef struct { int16_t z; int32_t x, y; uint32_t off, len, seq; } kept_t;
 
 static const esp_partition_t *s_part;
-static kept_t   s_kept[MAX_KEPT];
+static CORE_BIG kept_t s_kept[MAX_KEPT];
 static int      s_n;
 static uint32_t s_wp, s_seq;           // where the next tile goes, and its number
 

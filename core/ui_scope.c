@@ -99,7 +99,7 @@ void silhouette(canvas_t *cv, int kind, float x, float y, float heading, float s
 
 static uint8_t *s_phi8;                  /* angle from straight up, 1/256 of 90 degrees, dx <= dy only */
 static uint16_t s_tri[G_RQ];             /* where row dy starts in it */
-static uint8_t  s_ring[G_RQ * 16], s_dash[G_RQ * 16], s_glass[G_RQ + 1];
+static CORE_BIG uint8_t s_ring[G_RQ * 16], s_dash[G_RQ * 16], s_glass[G_RQ + 1];
 
 static float cover(float r, float R, float w) { return clampf(w * 0.5f + 0.5f - fabsf(r - R), 0, 1); }
 
@@ -203,7 +203,10 @@ static void ground_paint(const ui_t *u, uint32_t *col, uint8_t *lev)
 /* the pass itself. disc() below makes it twice: once for the plain radar, where the compiler
  * drops everything of the map, and once for the rest. a loop that may meet the map runs out of
  * registers and is slower by a sixth even with no map in it */
-static ALWAYS_INLINE void disc_pass(ui_t *u, canvas_t *cv, const int radar, const int classic, const map_t *m)
+/* beam and ticks: 0 for the background layer of the boards that put the sweep and the compass ring
+ * over the frame as the panel is fed (config.h RADAR_OVERLAY), 1 everywhere else */
+static ALWAYS_INLINE void disc_pass(ui_t *u, canvas_t *cv, const int radar, const int classic, const map_t *m,
+                                    const int beam_on, const int ticks_on)
 {
     int ya = G_SCY - G_RQ + 1, yb = G_SCY + G_RQ - 1;
     if (ya < cv->y0) ya = cv->y0;
@@ -317,7 +320,7 @@ static ALWAYS_INLINE void disc_pass(ui_t *u, canvas_t *cv, const int radar, cons
             }
             unsigned st = s_ring[r16];
             if (radar && (ph >> 3) & 1) st += s_dash[r16];
-            if (r16 >= (G_SR - GFX_Z(6)) * 16 && r16 <= RIM16) {   // the ticks, in from the rim
+            if (ticks_on && r16 >= (G_SR - GFX_Z(6)) * 16 && r16 <= RIM16) {   // the ticks, in from the rim
                 int k = (int)(((uint32_t)brg * 72u + 32768u) >> 16) % 72;
                 int len = k % 6 == 0 ? GFX_Z(6) : k % 2 == 0 ? GFX_Z(4) : GFX_Z(2);
                 int32_t cov = GFX_Z(192) - off_line(dx, dy, k);
@@ -330,7 +333,9 @@ static ALWAYS_INLINE void disc_pass(ui_t *u, canvas_t *cv, const int radar, cons
                 if (cov > 0) st += (unsigned)((k8 & 1 ? 20 : 36) * cov >> 8);
             }
             if (st) p = gfx_add(p, gfx_scale(prim, st > 255 ? 255 : st));
-            if (radar && r16 <= RP16) {
+            if (radar && r16 <= RP16 && !beam_on) {
+                if (cls != M_NONE) p = gfx_add(p, gpaint[cls]);    // the ground as it is off the beam's trail
+            } else if (radar && r16 <= RP16) {
                 uint16_t d = (uint16_t)(beam - ang);                /* how far behind the beam */
                 if (d < trail) {
                     uint32_t behind = ((uint32_t)d * trail_k) >> 16;
@@ -356,9 +361,55 @@ CORE_HOT static void disc(ui_t *u, canvas_t *cv)
 {
     const map_t *m = ground(u);
     const int look = u->cfg.look;
-    if (look == LOOK_RADAR && !m) disc_pass(u, cv, 1, 0, NULL);
-    else disc_pass(u, cv, look == LOOK_RADAR, look == LOOK_CLASSIC, m);
+#if RADAR_OVERLAY
+    if (LAYER_BG) {                                    // the sweep and the ticks go over it later
+        if (look == LOOK_RADAR && !m) disc_pass(u, cv, 1, 0, NULL, 0, 0);
+        else disc_pass(u, cv, look == LOOK_RADAR, look == LOOK_CLASSIC, m, 0, 0);
+        return;
+    }
+#endif
+    if (look == LOOK_RADAR && !m) disc_pass(u, cv, 1, 0, NULL, 1, 1);
+    else disc_pass(u, cv, look == LOOK_RADAR, look == LOOK_CLASSIC, m, 1, 1);
 }
+
+#if RADAR_OVERLAY
+
+/* the compass ring's ticks for the moving layer: what disc_pass adds for them, worked out only in a
+ * box round each tick instead of over the whole band. light added, as there */
+static void ticks_top(ui_t *u, canvas_t *cv)
+{
+    const int cx = scope_glass_cx(u), cy = G_SCY;
+    const uint32_t prim = C_PRIM, RIM16 = G_SR * 16 + 4;
+    for (int k = 0; k < 72; k++) {
+        const int len = k % 6 == 0 ? GFX_Z(6) : k % 2 == 0 ? GFX_Z(4) : GFX_Z(2);
+        const unsigned strength = k % 6 == 0 ? 240 : k % 2 == 0 ? 150 : 90;
+        const float sn = s_ts[k] / 16384.0f, cs = s_tc[k] / 16384.0f;   // the tick runs out along (sn, -cs)
+        const float ri = (float)(G_SR - len) - 1.0f, ro = (float)G_SR + 1.0f;
+        float xa = cx + sn * ri, xb = cx + sn * ro, ya = cy - cs * ri, yb = cy - cs * ro;
+        int x0 = (int)floorf(fminf(xa, xb)) - 2, x1 = (int)ceilf(fmaxf(xa, xb)) + 2;
+        int y0 = (int)floorf(fminf(ya, yb)) - 2, y1 = (int)ceilf(fmaxf(ya, yb)) + 2;
+        if (y0 < cv->y0) y0 = cv->y0;
+        if (y1 > cv->y0 + cv->h - 1) y1 = cv->y0 + cv->h - 1;
+        if (x0 < 0) x0 = 0;
+        if (x1 > GFX_PW - 1) x1 = GFX_PW - 1;
+        for (int y = y0; y <= y1; y++) {
+            uint32_t *row = gfx_row(cv, y);
+            const int dy = y - cy;
+            for (int x = x0; x <= x1; x++) {
+                const int dx = x - cx;
+                if (dx * s_ts[k] - dy * s_tc[k] <= 0) continue;   // the other half of the line is tick k+36's
+                const uint32_t r16 = (uint32_t)(gfx_sqrt((float)(dx * dx + dy * dy)) * 16.0f);
+                if (r16 < (uint32_t)(G_SR - len) * 16 || r16 > RIM16) continue;
+                int32_t cov = GFX_Z(192) - off_line(dx, dy, k);
+                if (GFX_SCALED && cov > 255) cov = 255;
+                if (cov <= 0) continue;
+                unsigned st = strength * (unsigned)cov >> 8;
+                row[x] = gfx_add(row[x], gfx_scale(prim, st > 255 ? 255 : st));
+            }
+        }
+    }
+}
+#endif
 
 /* --- where things are on the screen --- */
 
@@ -636,7 +687,7 @@ void scope_frame(ui_t *u)
 
     /* labels: the picked one first, then the nearest, each tries six places round its plane
      * and takes the first that covers nothing: other labels, planes, ring numbers, corners */
-    static box_t used[SKY_MAX * 2 + 12];
+    static CORE_BIG box_t used[SKY_MAX * 2 + 12];
     int nu = 0;
 #if RADAR_ROUND
     for (int k = 1; k <= 4; k++) {
@@ -742,7 +793,7 @@ static void compass(ui_t *u, canvas_t *cv)
     char buf[8];
     if (!gfx_touches(cv, SCY - SR - 10, SCY + SR)) return;
     const int cx = view_cx(u);
-    for (int d = 0; d < 360; d += 30) {                // where they stand comes from the tick lines (scope_frame)
+    for (int d = 0; d < 360 && !LAYER_BG; d += 30) {   // where they stand comes from the tick lines (scope_frame)
         int k = d / 5;
         int lx = cx + ((RL * s_ts[k] + 8192) >> 14), ly = SCY - ((RL * s_tc[k] + 8192) >> 14);
         if (!gfx_touches(cv, ly - 14, ly + 8)) continue;   // not in this strip: no letters looked up for nothing
@@ -755,6 +806,7 @@ static void compass(ui_t *u, canvas_t *cv)
             micro_text(cv, lx - micro_width(buf, 1) / 2, ly - 2, buf, C_PRIM, 200, 1);
         }
     }
+    if (LAYER_TOP) return;   // the mark for the top stays put: the background's
     float ty = (float)(SCY - SR - 8);
     if (ty >= 0) gfx_tri(cv, cx - 4.0f, ty, cx + 4.0f, ty, (float)cx, ty + 5.0f, C_FOCUS, 220);   // the top of the screen
 }
@@ -844,7 +896,7 @@ typedef struct {
     char    t[16];             /* the name: 48°50'N */
 } gline_t;
 
-static gline_t s_grid[GRID_LINES];
+static CORE_BIG gline_t s_grid[GRID_LINES];
 static int     s_ngrid;
 
 // a meridian or a parallel more, NULL when the store is full
@@ -1872,7 +1924,7 @@ void main_draw(ui_t *u, canvas_t *cv)
         grid_draw(u, cv);
         ui_lap(u, cv, 1);
         ui_lap(u, cv, 2);
-        planes(u, cv);
+        if (!LAYER_BG) planes(u, cv);
         home(u, cv);
         gesture(u, cv);
         ui_lap(u, cv, 3);
@@ -1897,7 +1949,7 @@ void main_draw(ui_t *u, canvas_t *cv)
         ring_numbers(u, cv);
         ui_lap(u, cv, 2);
         if (u->cfg.look == LOOK_RADAR) home_ring(u, cv);
-        planes(u, cv);
+        if (!LAYER_BG) planes(u, cv);
         if (u->cfg.look != LOOK_RADAR) home(u, cv);    // the round glass: its maps keep the pin
         attribution(u, cv);
         gesture(u, cv);
@@ -1926,6 +1978,96 @@ void main_draw(ui_t *u, canvas_t *cv)
 #endif
     ui_lap(u, cv, 4);
 }
+
+#if RADAR_OVERLAY
+/* a finger on the rim turns the compass: the moving layer is then the ring alone, cheap enough to be
+ * made again every panel frame so it follows the finger. the planes (and the map under them) catch up
+ * once the finger lets go */
+static int ring_turning(const ui_t *u) { return u->t_down && u->t_turn == 1 && u->t_moved && !square_look(u); }
+
+/* the moving layer of the main page, drawn on a canvas of nothing (gfx.h GFX_ALPHA): the compass
+ * ring (ticks, letters, numbers) and the planes with all that goes with them. the sweep is not here,
+ * the display driver adds it as the panel is fed (firmware/main/lcd_wave7.cpp) */
+void main_top(ui_t *u, canvas_t *cv)
+{
+    if (u->view != VIEW_MAIN) return;
+    const int was = cv->layer;
+    cv->layer = UI_LAYER_TOP;
+#if !RADAR_ROUND
+    if (square_look(u)) {
+        planes(u, cv);
+        cv->layer = was;
+        return;
+    }
+#endif
+    if (gfx_touches(cv, SCY - RQ - 12, SCY + RQ + 12)) {
+        ticks_top(u, cv);
+        compass(u, cv);
+        if (!ring_turning(u)) planes(u, cv);
+    }
+    cv->layer = was;
+}
+#endif
+
+#if RADAR_OVERLAY
+void ui_top_info(const ui_t *u, ui_top_t *t)
+{
+    t->beam = u->view == VIEW_MAIN && u->cfg.look == LOOK_RADAR && !square_look(u);
+    t->cx = scope_glass_cx(u);
+    t->cy = G_SCY;
+    t->r = G_PR;
+    t->prim = C_PRIM;
+    t->focus = C_FOCUS;
+    t->turn_ms = BEAM_TURN_MS;
+    t->clip_x = !RADAR_ROUND && square_look(u) && panel_shown(u) ? GFX_Z(PX - 2) : GFX_PW;
+    t->any = u->view == VIEW_MAIN;
+    t->ring_only = t->any && ring_turning(u);
+    /* what the app puts over the scope, drawn after the planes and the sweep there: the moving layer
+     * leaves those boxes alone, and the fill saves the work */
+    t->holes = 0;
+#define HOLE(X, Y, W, H) do { if (t->holes < 4) { const int k = t->holes++; t->hx0[k] = GFX_Z(X); t->hy0[k] = GFX_Z(Y); \
+                                                  t->hx1[k] = GFX_Z((X) + (W)); t->hy1[k] = GFX_Z((Y) + (H)); } } while (0)
+#if !RADAR_ROUND
+    if (t->any && demo_shown(u)) {
+        const demo_box_t d = demo_box(u);
+        HOLE(d.x, d.y, d.w, d.h);
+    }
+#endif
+    if (t->any && (int32_t)(u->toast_until - u->now) > 0) {
+        const int w = font_width(&FONT_MEDIUM, u->toast) + 20;
+        HOLE((GFX_W - w) / 2, GFX_H / 2 - 16, w, 26);
+    }
+    note_box_t nb;
+    if (t->any && update_note_box(u, &nb)) HOLE(nb.x, nb.y, nb.w, nb.h);
+#undef HOLE
+    if (!RADAR_ROUND && square_look(u)) {              // the flat map: planes anywhere on it
+        t->x0 = 0; t->y0 = 0; t->x1 = t->clip_x; t->y1 = GFX_PH;
+        return;
+    }
+    /* the scope with what sticks out of it (darts past the ring, glows, the picked plane's arcs), and
+     * the planes' labels, which may stand outside it */
+    const int cx = view_cx(u);
+    int x0 = cx - RQ - 30, x1 = cx + RQ + 30, y0 = SCY - RQ - 30, y1 = SCY + RQ + 30;
+    for (int i = 0; i < u->snap.n && !t->ring_only; i++) {
+        const spot_t *sp = &u->spot[i];
+        if (!sp->vis) continue;
+        if (sp->x - 30 < x0) x0 = sp->x - 30;
+        if (sp->x + 30 > x1) x1 = sp->x + 30;
+        if (sp->y - 30 < y0) y0 = sp->y - 30;
+        if (sp->y + 30 > y1) y1 = sp->y + 30;
+        if (!sp->lw) continue;
+        if (sp->lx - 2 < x0) x0 = sp->lx - 2;
+        if (sp->lx + sp->lw + 2 > x1) x1 = sp->lx + sp->lw + 2;
+        if (sp->ly - 2 < y0) y0 = sp->ly - 2;
+        if (sp->ly + LABEL_H + 2 > y1) y1 = sp->ly + LABEL_H + 2;
+    }
+    t->x0 = GFX_Z(x0); t->x1 = GFX_Z(x1 + 1); t->y0 = GFX_Z(y0); t->y1 = GFX_Z(y1 + 1);
+    if (t->x0 < 0) t->x0 = 0;
+    if (t->y0 < 0) t->y0 = 0;
+    if (t->x1 > t->clip_x) t->x1 = t->clip_x;
+    if (t->y1 > GFX_PH) t->y1 = GFX_PH;
+}
+#endif
 
 /* the first seconds after power on: a ring opens with the name, and on a board sold with
  * different screens a card says BOOT picks the next one, with the time it has left */

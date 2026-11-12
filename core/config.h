@@ -17,6 +17,8 @@
 #define DISPLAY_TAB5_1280x720   12   // M5Stack Tab5 5": ESP32-P4, 720x1280 standing on MIPI-DSI, its touch, through Espressif's board package
 #define DISPLAY_4827S043_480x272 13  // ESP32-4827S043C 4.3": ESP32-S3, 480x272 on the RGB bus, GT911 touch
 #define DISPLAY_CROW70_800x480  14   // Elecrow CrowPanel 7.0" (the plain one, not the Advance): ESP32-S3, RGB bus, GT911 touch
+#define DISPLAY_WAVE7_800x480   15   // Waveshare ESP32-S3-Touch-LCD-7: RGB bus, GT911, chipguy's 7/7B driver (fork addition)
+#define DISPLAY_WAVE7B_1024x600 16   // Waveshare ESP32-S3-Touch-LCD-7B: 1024x600, the same driver (fork addition)
 
 #ifndef RADAR_DISPLAY
 #define RADAR_DISPLAY DISPLAY_ILI9341_320x240
@@ -42,7 +44,7 @@
 #define GFX_H 272
 #define RADAR_EPAPER 1
 #elif RADAR_DISPLAY == DISPLAY_CROWADV50_800x480 || RADAR_DISPLAY == DISPLAY_JC8048W550_800x480 || \
-      RADAR_DISPLAY == DISPLAY_CROW70_800x480
+      RADAR_DISPLAY == DISPLAY_CROW70_800x480 || RADAR_DISPLAY == DISPLAY_WAVE7_800x480
 /* the 5" boards and the 7": the 3.5"'s layout, everything half as big again on an 800x480 glass.
  * GFX_W and GFX_H stay the layout's: the pages, the touch and every number in them go on as they are, and
  * core/gfx.c puts it on the glass in the glass's own pixels (GFX_Z). 534 and not 533: its middle
@@ -55,6 +57,18 @@
 #define GFX_SCALE_NUM 3              // the glass's pixels for one of the layout's: 3/2
 #define GFX_SCALE_SHIFT 1
 #define RADAR_RGB_BUS 1              // a frame in memory read out by the chip: its own byte order
+#elif RADAR_DISPLAY == DISPLAY_WAVE7B_1024x600
+/* the Waveshare 7B: the same layout 15/8 as big on a 1024x600 glass. 547 and not 546: 1024 / 1.875 =
+ * 546.1, the half pixel past the edge is clipped. the fonts are the 5" boards' 3/2 ones, as on the
+ * Tab5: the writing is 4/5 of its size */
+#define GFX_W 547
+#define GFX_H 320
+#define GFX_PW 1024
+#define GFX_PH 600
+#define GFX_SCALED 1
+#define GFX_SCALE_NUM 15             // 15/8
+#define GFX_SCALE_SHIFT 3
+#define RADAR_RGB_BUS 1
 #elif RADAR_DISPLAY == DISPLAY_TAB5_1280x720
 /* the Tab5: the same layout 9/4 as big on a 1280x720 glass (the panel stands, 720x1280: the
  * driver turns it, firmware/main/lcd_dsi.c). 569 and not 568: 1280 / 2.25 = 568.9, the half
@@ -89,6 +103,15 @@
 #define RADAR_RGB_BUS 0
 #endif
 
+/* the moving layer (fork addition): the planes, the sweep and the compass ring are not drawn into
+ * the frame in memory but put over it as the panel is fed, every panel frame (firmware/main/
+ * lcd_wave7.cpp). the frame in memory holds the rest and is drawn again only as time allows */
+#if RADAR_DISPLAY == DISPLAY_WAVE7_800x480 || RADAR_DISPLAY == DISPLAY_WAVE7B_1024x600
+#define RADAR_OVERLAY 1
+#else
+#define RADAR_OVERLAY 0
+#endif
+
 #ifndef RADAR_ROUND
 #define RADAR_ROUND 0
 #endif
@@ -116,7 +139,8 @@
 /* a BOOT button the firmware can read: every board but the Tab5, whose buttons go to its power
  * chip and its C6, not the P4, and the CrowPanel 7.0, whose BOOT is on the screen's clock line.
  * the pages say what BOOT does only where there is one */
-#define RADAR_HAS_BUTTON (RADAR_DISPLAY != DISPLAY_TAB5_1280x720 && RADAR_DISPLAY != DISPLAY_CROW70_800x480)
+#define RADAR_HAS_BUTTON (RADAR_DISPLAY != DISPLAY_TAB5_1280x720 && RADAR_DISPLAY != DISPLAY_CROW70_800x480 && \
+                          !RADAR_OVERLAY)   // the Waveshare 7/7B: BOOT is GPIO0, a panel data line
 
 #define RADAR_NAME "OWLOS FLIGHTS"
 
@@ -145,6 +169,10 @@
 #define RADAR_BOARD "4.3\" ESP32-4827S043, S3"
 #elif RADAR_DISPLAY == DISPLAY_CROW70_800x480
 #define RADAR_BOARD "7\" CrowPanel 7.0, S3"
+#elif RADAR_DISPLAY == DISPLAY_WAVE7_800x480
+#define RADAR_BOARD "7\" Waveshare S3-Touch-LCD-7"
+#elif RADAR_DISPLAY == DISPLAY_WAVE7B_1024x600
+#define RADAR_BOARD "7\" Waveshare S3-Touch-LCD-7B"
 #else
 #define RADAR_BOARD "E-PAPER"
 #endif

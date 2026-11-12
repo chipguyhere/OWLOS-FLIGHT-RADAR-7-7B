@@ -5,15 +5,34 @@
 #pragma once
 #include <stdint.h>
 
+#include "config.h"   // first: RADAR_OVERLAY below picks where CORE_BIG puts things (fork: it came after, and did nothing)
+
 /* hot loops go to IRAM on ESP32: a frame runs all this code ten times over
  * and every flash cache miss costs microseconds */
 #ifdef ESP_PLATFORM
 #include "esp_attr.h"
+#if RADAR_OVERLAY
+/* the Waveshare 7/7B (fork addition): the drawing code and its tables stay out of the internal RAM.
+ * what it draws there (the background, the planes' layer) is not on the panel's clock, and the RAM
+ * is wanted. the code that is (the fill, ovl.c) has IRAM_ATTR of its own */
+#define CORE_HOT
+#define CORE_DATA
+#else
 #define CORE_HOT  IRAM_ATTR
 #define CORE_DATA DRAM_ATTR
+#endif
+/* big state no interrupt touches (fork addition): in the PSRAM on the Waveshare 7/7B, whose internal
+ * RAM the 1024-wide bounce buffers and strips leave short (sdkconfig.defaults.wave7 lets the PSRAM
+ * take .bss). in the RAM as before everywhere else */
+#if RADAR_OVERLAY
+#define CORE_BIG  EXT_RAM_BSS_ATTR
+#else
+#define CORE_BIG
+#endif
 #else
 #define CORE_HOT
 #define CORE_DATA
+#define CORE_BIG
 #endif
 
 #include "config.h"   // GFX_W, GFX_H come from the chosen display
@@ -53,17 +72,37 @@ typedef struct {
     int y0;         /* first screen row of the strip */
     int h;          /* rows in strip */
     int helper;     /* drawn by the second core (main.c): its time is not in ui_t.prof */
+    int layer;      /* RADAR_OVERLAY builds: which layer it is drawn for (ui.h UI_LAYER_*), 0 everywhere else */
 } canvas_t;
 
 #define RGB(r, g, b) ((uint32_t)((((r) & 255) << 16) | (((g) & 255) << 8) | ((b) & 255)))
+
+/* the moving layer (config.h RADAR_OVERLAY) is drawn on a canvas of nothing, 0, and taken off it as
+ * colour and coverage: there the top byte of a pixel is how much of it is covered, 0..255, and the
+ * colour is already scaled by it. a colour drawn counts as opaque (GFX_OPAQUE), mixing builds the
+ * coverage up as it builds the colour, adding light (glows) leaves it as it was. on every other
+ * build the top byte is never looked at and none of this is compiled */
+#if RADAR_OVERLAY
+#define GFX_ALPHA  1
+#define GFX_OPAQUE 0xFF000000u
+#else
+#define GFX_ALPHA  0
+#define GFX_OPAQUE 0u
+#endif
 
 // alpha is 0..256 everywhere (256 = opaque) so >> 8 is exact
 static inline uint32_t gfx_mix(uint32_t d, uint32_t s, uint32_t a)
 {
     uint32_t ia = 256 - a;
     uint32_t rb = ((s & 0xFF00FFu) * a + (d & 0xFF00FFu) * ia) >> 8;
+#if GFX_ALPHA
+    /* green and the coverage together, as red and blue are: green low, coverage in the third byte */
+    uint32_t ga = (((s >> 8) & 0xFFu) | 0xFF0000u) * a + ((d >> 8) & 0xFF00FFu) * ia;
+    return (rb & 0xFF00FFu) | (ga & 0xFF00FF00u);
+#else
     uint32_t g  = ((s & 0x00FF00u) * a + (d & 0x00FF00u) * ia) >> 8;
     return (rb & 0xFF00FFu) | (g & 0x00FF00u);
+#endif
 }
 
 static inline uint32_t gfx_scale(uint32_t c, uint32_t a)
@@ -79,7 +118,11 @@ static inline uint32_t gfx_add(uint32_t d, uint32_t s)
     uint32_t t = (d & 0x7F7F7Fu) + (s & 0x7F7F7Fu);
     uint32_t sum = t ^ ((d ^ s) & 0x808080u);
     uint32_t ovf = ((d & s) | ((d | s) & t)) & 0x808080u;
+#if GFX_ALPHA
+    return sum | ((ovf >> 7) * 0xFFu) | (d & 0xFF000000u);   // light adds no coverage
+#else
     return sum | ((ovf >> 7) * 0xFFu);
+#endif
 }
 
 /* fast sqrt for anti-aliasing: inverse root guess + one Newton step, ~0.2% off,
@@ -115,7 +158,7 @@ static inline int gfx_sub(const canvas_t *cv, int ya, int yb, canvas_t *out)
     if (a < cv->y0) a = cv->y0;
     if (b > cv->y0 + cv->h - 1) b = cv->y0 + cv->h - 1;
     if (a > b) return 0;
-    *out = (canvas_t){ cv->px + (a - cv->y0) * GFX_PW, a, b - a + 1, cv->helper };
+    *out = (canvas_t){ cv->px + (a - cv->y0) * GFX_PW, a, b - a + 1, cv->helper, cv->layer };
     return 1;
 }
 

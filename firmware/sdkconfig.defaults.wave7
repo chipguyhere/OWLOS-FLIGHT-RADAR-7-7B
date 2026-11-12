@@ -1,0 +1,26 @@
+# the Waveshare ESP32-S3-Touch-LCD-7 and -7B (fork addition), read after sdkconfig.defaults.s3rgb.
+# chipguyhere's 7/7B library (components/chipguy_lcd7_7b) was written on the Arduino core, whose
+# ESP-IDF has these on: the run-time counters it reads each core's idle share from
+CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS=y
+CONFIG_FREERTOS_USE_TRACE_FACILITY=y
+# plain malloc may go to the PSRAM for anything of 1 KB or more (the scope's 41 KB angle table among
+# them): the internal RAM is wanted for the 1024-wide bounce buffers, the strips and the WiFi. what
+# must be internal asks for it by name (heap_caps_malloc MALLOC_CAP_INTERNAL)
+CONFIG_SPIRAM_USE_MALLOC=y
+CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=1024
+# TLS: AES in software. the hardware AES copies data that lies in the PSRAM (where TLS's buffers are,
+# sdkconfig.defaults.s3rgb) through a DMA buffer it takes from the internal RAM, which the 1024-wide
+# bounce buffers and strips leave short: "esp-aes: Failed to allocate memory", and the request failed
+CONFIG_MBEDTLS_HARDWARE_AES=n
+# big state no interrupt touches goes in the PSRAM (core/gfx.h CORE_BIG): ~65 KB of internal RAM back
+CONFIG_SPIRAM_ALLOW_BSS_SEG_EXTERNAL_MEMORY=y
+# a crash leaves its core dump in the flash (partitions_wave7.csv), for idf.py coredump-info afterwards:
+# the board is often running with nobody on its serial port. both boards have 8 MB or more
+CONFIG_ESPTOOLPY_FLASHSIZE_8MB=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions_wave7.csv"
+CONFIG_ESP_COREDUMP_ENABLE_TO_FLASH=y
+CONFIG_ESP_COREDUMP_DATA_FORMAT_ELF=y
+# the watchdog keeps watching the ui task, not the first core's idle task: a TLS handshake (seconds of
+# elliptic-curve maths in the fetch task) beside a page being drawn left the idle task no turn, which
+# is no hang, and the board was restarted for it
+# CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU0 is not set

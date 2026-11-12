@@ -127,7 +127,7 @@ CORE_HOT int micro_text(canvas_t *cv, int x, int y, const char *s, uint32_t c, i
                     for (int sx = 0; sx < scale; sx++) {
                         int px = x + col * scale + sx;
                         if (px >= 0 && px < GFX_PW)
-                            row[px] = a >= 256 ? c : gfx_mix(row[px], c, (uint32_t)a);
+                            row[px] = a >= 256 ? (c | GFX_OPAQUE) : gfx_mix(row[px], c, (uint32_t)a);
                     }
                 }
             }

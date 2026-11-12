@@ -86,6 +86,11 @@ static int apply(int at)
     memcpy(wc.sta.ssid, n->ssid, strnlen(n->ssid, sizeof wc.sta.ssid));
     memcpy(wc.sta.password, n->pass, strnlen(n->pass, sizeof wc.sta.password));
     wc.sta.threshold.authmode = n->pass[0] ? WIFI_AUTH_WEP : WIFI_AUTH_OPEN;
+    /* a network served by several access points (fork addition, every board): look on every channel and
+     * join the strongest. ESP-IDF's default takes the first it hears, the lowest channel, which here was
+     * one far off (-85 dBm) with another 3 m away (-47 dBm) */
+    wc.sta.scan_method = WIFI_ALL_CHANNEL_SCAN;
+    wc.sta.sort_method = WIFI_CONNECT_AP_BY_SIGNAL;
     s_have_ssid = n->ssid[0] != 0;
     if (esp_wifi_set_config(WIFI_IF_STA, &wc) != ESP_OK) return 0;
     s_why = WHY_NONE;                                 // a new network: nothing known about it yet
@@ -198,6 +203,12 @@ void net_start(const nets_t *l)
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
     apply(0);
     ESP_ERROR_CHECK(esp_wifi_start());
+#if RADAR_OVERLAY
+    /* the Waveshare 7/7B (fork addition): no modem sleep. their antenna sits behind a 7" panel and its
+     * backlight, the signal is weak (-77 to -85 dBm seen), and a radio that sleeps between beacons there
+     * missed DNS answers and lost the network. the boards run from a wall supply */
+    esp_wifi_set_ps(WIFI_PS_NONE);
+#endif
     ESP_LOGI(TAG, "WiFi started, network \"%s\", %d kept", s_name, s_nets.count);
 }
 

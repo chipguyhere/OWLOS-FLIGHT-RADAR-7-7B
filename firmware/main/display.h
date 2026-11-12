@@ -36,6 +36,15 @@ void        disp_wait_idle(void);
  * the radio's among them. before anything asks for the WiFi, from app_main */
 void        disp_board_up(void);
 #endif
+#if DISP_WAVE7
+/* the Waveshare 7/7B (lcd_wave7.c): the background goes into the frame that does not show. a new one
+ * may start when disp_bg_ready says the last one is up; disp_bg_begin picks the frame, the strips
+ * follow, disp_frame_end shows it from the next panel frame on. the moving layer is ovl.h's */
+int         disp_bg_ready(void);
+void        disp_bg_begin(void);
+uint32_t    disp_frame_us(void);      // the panel's frame, as measured
+void        disp_log(void);           // the panel's and the layer's counters, for the 10 s log
+#endif
 void        disp_pack_under(const canvas_t *under);
 void        disp_strip2(const canvas_t *cv, int under_rows);
 int         disp_rows(int rows);

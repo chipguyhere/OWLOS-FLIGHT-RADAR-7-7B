@@ -62,6 +62,7 @@ void scope_opt_defaults(scope_opt_t *o)
 {
     memset(o, 0, sizeof *o);
     o->version = SCOPE_OPT_VERSION;
+    o->beam_step = 1;                                  // a plane moves when the beam goes over it, as on a real scope
 }
 
 static const float TO_KM[3] = { 1.0f, 1.852f, 1.609344f };
@@ -175,6 +176,28 @@ void chamfer_box(canvas_t *cv, int x, int y, int w, int h, uint32_t fill, int fi
 {
     if (!gfx_touches(cv, y - 1, y + h)) return;
     const int k = 5, x1 = x + w - 1, y1 = y + h - 1;
+#if GFX_SCALED && GFX_SCALE_NUM != 3
+    /* scales other than 3/2 (the Waveshare 7B's 15/8, the Tab5's 9/4; fork): the straight sides as
+     * whole pixels and the cut corners as smooth lines between pixel middles only line up at 3/2.
+     * elsewhere the corners stepped. every side the same way instead, through the pixels' middles */
+    {
+        const float X0 = (float)x, Y0 = (float)y, X1 = (float)x1, Y1 = (float)y1, K = (float)k;
+        const float P[6][2] = { { X0 + K, Y0 }, { X1, Y0 }, { X1, Y1 - K }, { X1 - K, Y1 }, { X0, Y1 }, { X0, Y0 + K } };
+        /* the fill the same shape, a layout row at a time: from under the left side (one in, so its whole
+         * glass pixels never show past the side) to under the right one, each cut row stopping at the cut.
+         * a rectangle showed past the sides top and left and in the cut corners; the smooth polygon
+         * did not, but cost so much a keyboard page took seconds */
+        if (fill_a) {
+            for (int yy = y + 1; yy <= y1; yy++) {
+                const int l = yy < y + k ? x + (y + k - yy) : x + 1;
+                const int r = yy > y1 - k ? x1 - (yy - (y1 - k)) : x1;
+                if (r >= l) gfx_fill(cv, l, yy, r - l + 1, 1, fill, fill_a);
+            }
+        }
+        for (int i = 0; i < 6; i++) gfx_line(cv, P[i][0], P[i][1], P[(i + 1) % 6][0], P[(i + 1) % 6][1], 1.0f, line, line_a);
+        return;
+    }
+#endif
     if (fill_a) gfx_fill(cv, x, y, w, h, fill, fill_a);
     // the straight sides are whole pixels, only the two cut corners need smoothing
     gfx_hline(cv, x + k + 1, x1, y, line, line_a);
@@ -307,8 +330,8 @@ void page_header(canvas_t *cv, const char *title, const char *right, uint32_t co
 
 /* all of this is in pixels of the glass */
 #define BG_GRID GFX_Z(12)
-static uint32_t s_bgrow[GFX_PH];
-static uint16_t s_vigx[GFX_PW], s_vigy[GFX_PH];
+static CORE_BIG uint32_t s_bgrow[GFX_PH];
+static CORE_BIG uint16_t s_vigx[GFX_PW], s_vigy[GFX_PH];
 static int16_t  s_gridcols[GFX_PW / BG_GRID + 2];
 static int      s_ngrid, s_grid_cx = -1;
 static struct { int16_t x, y; uint8_t a; } s_stars[128];
@@ -802,6 +825,10 @@ void ui_button(ui_t *u, int ev, ui_cmd_t *cmd)
 }
 
 /* --- draw one strip --- */
+
+#if RADAR_OVERLAY
+void ui_top_strip(ui_t *u, canvas_t *cv) { main_top(u, cv); }
+#endif
 
 void ui_strip(ui_t *u, canvas_t *cv)
 {

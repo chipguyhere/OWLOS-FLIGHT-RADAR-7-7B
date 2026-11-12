@@ -185,6 +185,29 @@ void ui_set_cfg(ui_t *u, const fr_cfg_t *c);
 // copy the sky and the net state into u->snap / u->net before this
 void ui_frame(ui_t *u, uint32_t now);
 void ui_strip(ui_t *u, canvas_t *cv);
+#if RADAR_OVERLAY
+/* the boards that put the moving things over the frame as the panel is fed (config.h): ui_strip
+ * draws the layer the canvas says (canvas_t.layer). BG leaves out the planes, the sweep and the compass
+ * ring; ui_top_strip draws just those on a canvas of nothing (gfx.h GFX_ALPHA). a field of the canvas,
+ * not a global: the two layers are drawn on different cores at once */
+enum { UI_LAYER_ALL, UI_LAYER_BG, UI_LAYER_TOP };
+void ui_top_strip(ui_t *u, canvas_t *cv);
+/* what the display driver needs to add the sweep itself, in the glass's pixels, and where the
+ * moving layer stops on the right (the square map's panel slides in over it) */
+typedef struct {
+    int      beam;          /* the sweep turns: the radar look on the main page */
+    int      cx, cy, r;     /* its middle and the range ring's radius */
+    uint32_t prim, focus;   /* the theme's colours for its trail and its edge, 0x00RRGGBB */
+    uint32_t turn_ms;       /* once round in this */
+    int      clip_x;        /* the layer is cut off from here rightwards */
+    int      any;           /* 0: nothing moves on this page */
+    int      holes;         /* popups over the scope (the DEMO card, a toast, the update note): nothing moving shows */
+    int      hx0[4], hy0[4], hx1[4], hy1[4];   /* in them, glass pixels, x1 and y1 past the end */
+    int      x0, y0, x1, y1;   /* where it can be, glass pixels, x1 and y1 past the end: no need to look elsewhere */
+    int      ring_only;     /* a finger turns the compass: the layer is the ring alone, made every frame */
+} ui_top_t;
+void ui_top_info(const ui_t *u, ui_top_t *t);
+#endif
 
 void ui_touch(ui_t *u, int down, int x, int y, int rx, int ry, uint32_t now, ui_cmd_t *cmd);
 void ui_button(ui_t *u, int ev, ui_cmd_t *cmd);     /* BOOT: 1 short, 2 long */
